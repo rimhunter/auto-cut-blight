@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+set -uo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$here"
+for v in 1.6 1.7; do
+  [ -f "$v/Assemblies/ModAutoCutBlight.dll" ] || { echo "build both versions first (dotnet build Build.proj): $v/Assemblies/ModAutoCutBlight.dll is missing" >&2; exit 4; }
+done
+fail=0
+check() {
+  local out
+  if out="$("${@:2}" 2>&1)"; then echo "PASS $1"; else echo "FAIL $1"; [ -z "$out" ] || printf '%s\n' "$out" | sed 's/^/    /'; fail=1; fi
+}
+tracked() { (git ls-files; git ls-files --others --exclude-standard) | grep -v '^TestRunner/shared$' | sort -u; }
+
+about_ok() {
+  python3 -I - About/About.xml <<'PY'
+import sys, xml.etree.ElementTree as ET
+r = ET.parse(sys.argv[1]).getroot()
+t = lambda p: r.findtext(p)
+assert t("name") == "Auto-Cut Blight (rimhunter)", t("name")
+assert t("packageId").startswith("rimhunter."), "packageId is not under rimhunter.: " + t("packageId")
+assert t("packageId") == "rimhunter.autocutblight", t("packageId")
+assert t("modVersion") == "1.0.0", t("modVersion")
+assert t("url") == "https://github.com/rimhunter/auto-cut-blight", t("url")
+author = t("author").lower()
+assert "rimhunter" in author and "from scratch" in author and "original" in author, "the author line must name rimhunter, say from scratch and credit the original idea: " + t("author")
+assert [e.text for e in r.findall("supportedVersions/li")] == ["1.6", "1.7"]
+assert r.find("modDependencies") is None and r.find("modDependenciesByVersion") is None, "dependencies declared"
+ids = sorted(e.text.lower() for e in r.findall("incompatibleWith/li"))
+assert ids == sorted(["razor2.3.anotherrimworldmod.autocutblight", "tr.autocutblight", "defi.autocutblight"]), ids
+desc = t("description")
+for need in ("from scratch", "original", "https://github.com/rimhunter/auto-cut-blight"):
+    assert need in desc, "the About description does not mention " + need
+PY
+}
+version_ok() {
+  python3 -I - <<'PY'
+import re, xml.etree.ElementTree as ET
+about = ET.parse("About/About.xml").getroot().findtext("modVersion")
+proj = open("Source/ModAutoCutBlight.csproj", encoding="utf-8").read()
+m = re.search(r"<Version>([^<]+)</Version>", proj)
+assert m, "the csproj sets no <Version>"
+assert m.group(1) == about, "csproj Version %s does not match About.xml modVersion %s" % (m.group(1), about)
+assert "AssemblyVersion" not in proj and "FileVersion" not in proj, "set only <Version>"
+PY
+}
+no_dependency_ok() {
+  python3 -I - <<'PY'
+import re
+proj = open("Source/ModAutoCutBlight.csproj", encoding="utf-8").read()
+refs = re.findall(r'<PackageReference Include="([^"]+)"', proj)
+assert refs == ["Krafs.Rimworld.Ref"], refs
+assert "<Reference " not in proj and "ProjectReference" not in proj, "the mod project references something besides the game"
+PY
+}
+no_harmony_ok() {
+  local hits
+  hits="$(tracked | grep -E '^(Source|About|Defs|Languages|1\.6|1\.7)/|^LoadFolders\.xml$' | grep -v '/\(bin\|obj\)/' | xargs grep -Il 'Harmony' 2>/dev/null)"
+  [ -z "$hits" ] || { echo "Harmony is referenced in: $hits"; return 1; }
+}
+no_settings_ok() {
+  local files hits
+  files="$(tracked | grep -i -E 'settings|modconfig' | grep -v -E '^(scripts/|Tests/|TestRunner/|\.gitea/)')"
+  [ -z "$files" ] || { echo "a settings file exists: $files"; return 1; }
+  hits="$(tracked | grep -E '^Source/.*\.cs$' | xargs grep -l -E 'ModSettings|SettingsCategory|DoSettingsWindowContents|GetSettings<|: *Mod\b' 2>/dev/null)"
+  [ -z "$hits" ] || { echo "a settings class or Mod subclass exists in: $hits"; return 1; }
+}
+tree_clean() {
+  local bins
+  bins="$(git ls-files | grep -v '^TestRunner/shared$' | grep -i -E '\.(dll|pdb|exe|so|dylib)$|(^|/)Assembly-CSharp')"
+  [ -z "$bins" ] || { echo "committed binaries: $bins"; return 1; }
+}
+no_original_ok() {
+  python3 -I - <<'PY'
+import subprocess
+files = [f for f in subprocess.run("(git ls-files; git ls-files --others --exclude-standard) | sort -u", shell=True, check=True, capture_output=True, text=True).stdout.split("\n") if f and f != "TestRunner/shared"]
+ids = ("1885186534", "3520167264", "3225340303")
+allowed = {"scripts/test-identity", "scripts/test-package", "Tests/AutoCutBlight.Tests/ModFolderTests.cs", "CHANGELOG.md", "WORKSHOP.md"}
+for f in files:
+    low = f.lower()
+    assert "publishedfileid" not in low, "a Workshop id file is committed: " + f
+    png_allowed = f == "About/Preview.png" or (low.startswith("docs/verification/") and low.endswith(".png"))
+    art = (".dll", ".pdb", ".jpg", ".jpeg", ".ogg", ".wav", ".mp3", ".dds", ".psd") if png_allowed else (".dll", ".pdb", ".png", ".jpg", ".jpeg", ".ogg", ".wav", ".mp3", ".dds", ".psd")
+    assert not low.endswith(art), "binary or art file committed: " + f
+    assert not low.startswith(("textures/", "sounds/")), "texture or sound committed: " + f
+    if f in allowed:
+        continue
+    text = open(f, "rb").read().decode("utf-8", "replace")
+    for i in ids:
+        assert i not in text, "the original's Workshop id %s appears in %s" % (i, f)
+PY
+}
+package_ok() {
+  local out rc=0; out="$(mktemp -d)"
+  scripts/package --no-build "$out/pkg" >/dev/null || rc=1
+  if [ $rc = 0 ]; then
+    for p in About/About.xml Defs/WorkGiverDef/WorkGivers.xml Languages/English/DefInjected/WorkGiverDef/WorkGivers.xml LoadFolders.xml LICENSE CHANGELOG.md Source/ModAutoCutBlight.csproj 1.6/Assemblies/ModAutoCutBlight.dll 1.7/Assemblies/ModAutoCutBlight.dll; do
+      [ -e "$out/pkg/$p" ] || { echo "missing $p"; rc=1; }
+    done
+  fi
+  rm -rf "$out"
+  return $rc
+}
+runner_ids_ok() {
+  python3 -I - <<'PY'
+import json, xml.etree.ElementTree as ET
+c = json.load(open("rimhunter-runner.json"))
+assert c["packageId"] == "rimhunter.autocutblight", c["packageId"]
+assert c["modAssembly"] == "ModAutoCutBlight.dll", c["modAssembly"]
+r = ET.parse("TestRunner/About/About.xml").getroot()
+assert r.findtext("packageId") == "rimhunter.autocutblight.testrunner"
+assert [e.text for e in r.findall("loadAfter/li")] == ["rimhunter.autocutblight"]
+PY
+}
+
+check "About.xml identity, version, authorship and incompatibleWith" about_ok
+check "csproj version equals About.xml" version_ok
+check "the mod references only the game" no_dependency_ok
+check "no Harmony anywhere in the mod" no_harmony_ok
+check "no settings class and no settings file" no_settings_ok
+check "no committed binary or bundled game DLL" tree_clean
+check "nothing of the original: no Workshop id, preview, art or binary" no_original_ok
+check "package folder contents" package_ok
+check "runner config names the mod's packageId" runner_ids_ok
+check "package holds neither the runner nor the tests" scripts/test-package
+check "English translation files match the defs" scripts/test-translations
+exit $fail

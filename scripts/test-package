@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$here"
+out="$(mktemp -d)"
+trap 'rm -rf "$out"' EXIT
+fail=0
+if ! scripts/package --no-build "$out/pkg" >/dev/null; then
+  echo "FAIL package"
+  exit 1
+fi
+for p in About/About.xml About/Preview.png Defs/WorkGiverDef/WorkGivers.xml Languages/English/DefInjected/WorkGiverDef/WorkGivers.xml LoadFolders.xml LICENSE CHANGELOG.md 1.6/Assemblies/ModAutoCutBlight.dll 1.7/Assemblies/ModAutoCutBlight.dll Source/ModAutoCutBlight.csproj; do
+  if [ ! -f "$out/pkg/$p" ]; then
+    echo "FAIL missing $p"
+    fail=1
+  fi
+done
+for p in WORKSHOP.md Readme.md docs TestRunner Tests scripts obj bin .git .gitea .gitmodules rimhunter-runner.json Build.proj global.json Assemblies About/PublishedFileId.txt; do
+  if [ -e "$out/pkg/$p" ]; then
+    echo "FAIL unexpected $p"
+    fail=1
+  fi
+done
+dlls="$(find "$out/pkg" -type f -name '*.dll')"
+while IFS= read -r f; do
+  case "$f" in
+    "") ;;
+    "$out/pkg/1.6/Assemblies/ModAutoCutBlight.dll" | "$out/pkg/1.7/Assemblies/ModAutoCutBlight.dll") ;;
+    *) echo "FAIL unexpected $f"; fail=1 ;;
+  esac
+done <<<"$dlls"
+others="$(find "$out/pkg" -type f \( -iname '*.pdb' -o -iname '*.exe' -o -iname '*.png' -o -iname '*.jpg' -o -iname '*.ogg' -o -iname '*.wav' -o -iname '*.dds' \) ! -path "$out/pkg/About/Preview.png")"
+[ -z "$others" ] || { echo "FAIL packaged binary or art: $others"; fail=1; }
+grep_status=0
+mentions="$(grep -rIl 'TestRunner\|testrunner' "$out/pkg")" || grep_status=$?
+case "$grep_status" in
+  0) echo "FAIL runner mentioned in package: $mentions"; fail=1 ;;
+  1) ;;
+  *) echo "FAIL searching the package for the runner (grep exit $grep_status)"; exit 1 ;;
+esac
+grep_status=0
+original="$(grep -rIlE '1885186534|3520167264|3225340303' "$out/pkg")" || grep_status=$?
+case "$grep_status" in
+  0) echo "FAIL the original's Workshop id is in the package: $original"; fail=1 ;;
+  1) ;;
+  *) echo "FAIL searching the package for the original's ids (grep exit $grep_status)"; exit 1 ;;
+esac
+python3 -I - "$out/pkg/About/About.xml" <<'PY' || fail=1
+import sys, xml.etree.ElementTree as ET
+r = ET.parse(sys.argv[1]).getroot()
+assert r.findtext("packageId").startswith("rimhunter."), "packaged packageId is not under rimhunter."
+assert r.find("modDependencies") is None and r.find("modDependenciesByVersion") is None, "packaged mod declares a dependency"
+PY
+if [ "$fail" != 0 ]; then
+  exit 1
+fi
+echo "PASS package holds neither the runner nor the tests, and nothing of the original"

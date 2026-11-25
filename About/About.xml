@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+    <name>Auto-Cut Blight (rimhunter)</name>
+    <author>rimhunter (written from scratch; the idea is from the original Auto-Cut Blight)</author>
+    <packageId>rimhunter.autocutblight</packageId>
+    <modVersion>1.0.0</modVersion>
+    <url>https://github.com/rimhunter/auto-cut-blight</url>
+    <supportedVersions>
+        <li>1.6</li>
+        <li>1.7</li>
+    </supportedVersions>
+    <loadAfter>
+        <li>Ludeon.RimWorld</li>
+    </loadAfter>
+    <incompatibleWith>
+        <li>razor2.3.AnotherRimworldMod.AutoCutBlight</li>
+        <li>tr.AutoCutBlight</li>
+        <li>Defi.AutoCutBlight</li>
+    </incompatibleWith>
+    <description>Auto-Cut Blight (rimhunter) is written from scratch by rimhunter for RimWorld 1.6 and 1.7. The idea is from the original Auto-Cut Blight; no code or asset of the original was used. Source and changelog: https://github.com/rimhunter/auto-cut-blight
+
+Do not run another Auto-Cut Blight alongside this one: RimWorld's mod list should warn when one of the original builds is enabled (tested with stand-in mods; the original builds were never run).</description>
+</ModMetaData>

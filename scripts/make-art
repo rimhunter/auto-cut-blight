@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+import math
+import os
+import sys
+from PIL import Image, ImageDraw, ImageFont
+
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+FONT = "/usr/share/fonts/open-sans/OpenSans-Bold.ttf"
+
+GREEN = (0, 158, 115, 255)
+DEEP = (0, 96, 70, 255)
+ORANGE = (230, 159, 0, 255)
+SKY = (86, 180, 233, 255)
+RED = (213, 94, 0, 255)
+INK = (24, 28, 34, 255)
+PAPER = (240, 234, 214, 255)
+STEEL = (200, 206, 214, 255)
+SKIN = (236, 200, 160, 255)
+BARK = (140, 96, 58, 255)
+SOIL = (74, 52, 36, 255)
+ROT = (112, 70, 96, 255)
+ROT_DARK = (62, 36, 58, 255)
+SPORE = (190, 150, 60, 255)
+
+
+class Pen:
+    def __init__(self, w, h, scale):
+        self.s = scale
+        self.im = Image.new("RGBA", (w * scale, h * scale), (0, 0, 0, 0))
+        self.d = ImageDraw.Draw(self.im)
+
+    def _pts(self, pts):
+        return [(x * self.s, y * self.s) for x, y in pts]
+
+    def poly(self, pts, fill, outline=INK, width=2):
+        p = self._pts(pts)
+        self.d.polygon(p, fill=fill)
+        self.d.line(p + [p[0]], fill=outline, width=int(width * self.s), joint="curve")
+
+    def rect(self, x0, y0, x1, y1, fill, outline=INK, width=2):
+        self.d.rectangle([x0 * self.s, y0 * self.s, x1 * self.s, y1 * self.s], fill=fill, outline=outline, width=int(width * self.s))
+
+    def circle(self, cx, cy, r, fill=None, outline=INK, width=2):
+        self.d.ellipse([(cx - r) * self.s, (cy - r) * self.s, (cx + r) * self.s, (cy + r) * self.s], fill=fill, outline=outline, width=int(width * self.s) if outline else 0)
+
+    def ellipse(self, cx, cy, rx, ry, fill, outline=INK, width=2):
+        self.d.ellipse([(cx - rx) * self.s, (cy - ry) * self.s, (cx + rx) * self.s, (cy + ry) * self.s], fill=fill, outline=outline, width=int(width * self.s))
+
+    def line(self, a, b, fill, width):
+        self.d.line(self._pts([a, b]), fill=fill, width=int(width * self.s))
+
+
+def plant(p, cx, base, h, blighted):
+    leaf = ROT if blighted else GREEN
+    leaf2 = ROT_DARK if blighted else DEEP
+    p.line((cx, base), (cx, base - h * 0.7), BARK if not blighted else ROT_DARK, 8)
+    for side in (-1, 1):
+        droop = 0.18 if blighted else 0.0
+        p.poly([(cx, base - h * 0.45), (cx + side * h * 0.42, base - h * (0.62 - droop)), (cx + side * h * 0.1, base - h * 0.3)], leaf, width=3)
+        p.poly([(cx, base - h * 0.7), (cx + side * h * 0.34, base - h * (0.95 - droop)), (cx + side * h * 0.08, base - h * 0.52)], leaf2, width=3)
+    p.ellipse(cx, base - h * 0.8, h * 0.11, h * 0.09, leaf, width=3)
+    if blighted:
+        for dx, dy in ((-0.16, 0.5), (0.2, 0.62), (0.02, 0.84), (-0.3, 0.7)):
+            p.circle(cx + dx * h, base - dy * h, h * 0.04, fill=SPORE, outline=None)
+
+
+def mark(p, cx, cy, r):
+    p.circle(cx, cy, r, fill=PAPER, width=4)
+    p.line((cx - r * 0.5, cy), (cx - r * 0.1, cy + r * 0.45), GREEN, 9)
+    p.line((cx - r * 0.1, cy + r * 0.45), (cx + r * 0.55, cy - r * 0.45), GREEN, 9)
+
+
+def person(p, cx, base, h, body):
+    w = h * 0.5
+    p.rect(cx - w / 2, base - h * 0.62, cx + w / 2, base, body)
+    p.rect(cx - w * 0.36, base - h * 0.99, cx + w * 0.36, base - h * 0.66, SKIN)
+
+
+def sickle(p, x, y, length):
+    p.line((x, y), (x + length * 0.45, y - length * 0.75), BARK, 9)
+    steps = 12
+    pts = [(x + length * 0.45 + math.cos(math.radians(200 + 150 * i / steps)) * length * 0.38 + length * 0.2,
+            y - length * 0.75 + math.sin(math.radians(200 + 150 * i / steps)) * length * 0.38) for i in range(steps + 1)]
+    for a, b in zip(pts, pts[1:]):
+        p.line(a, b, STEEL, 8)
+
+
+def preview():
+    W, H, S = 1024, 576, 2
+    base = Image.new("RGBA", (W * S, H * S), (0, 0, 0, 255))
+    d = ImageDraw.Draw(base)
+    for y in range(H * S):
+        t = y / (H * S)
+        d.line([(0, y), (W * S, y)], fill=(int(30 + 70 * t), int(40 + 40 * t), int(64 - 10 * t), 255))
+    d.rectangle([0, 384 * S, W * S, H * S], fill=SOIL)
+    d.line([(0, 384 * S), (W * S, 384 * S)], fill=PAPER, width=3 * S)
+
+    p = Pen(W, H, S)
+    xs = (70, 190, 310, 430, 550, 670)
+    blighted = (False, True, True, False, True, False)
+    for x, b in zip(xs, blighted):
+        plant(p, x, 380, 190, b)
+    for x, b in zip(xs, blighted):
+        if b:
+            mark(p, x, 150, 28)
+    person(p, 810, 378, 130, RED)
+    sickle(p, 835, 335, 110)
+    person(p, 940, 378, 120, SKY)
+    im = Image.alpha_composite(base, p.im)
+
+    d = ImageDraw.Draw(im)
+    title = ImageFont.truetype(FONT, 92 * S)
+    sub = ImageFont.truetype(FONT, 36 * S)
+    for text, font, y, fill in (("Auto-Cut Blight", title, 396, PAPER), ("for RimWorld 1.6 and 1.7", sub, 508, STEEL)):
+        x = (W * S - d.textlength(text, font=font)) / 2
+        d.text((x + 4 * S, y * S + 4 * S), text, font=font, fill=(0, 0, 0, 255))
+        d.text((x, y * S), text, font=font, fill=fill)
+    im.convert("RGB").resize((W, H), Image.LANCZOS).save(os.path.join(HERE, "About", "Preview.png"), optimize=True)
+
+
+if __name__ == "__main__":
+    if not os.path.isfile(FONT):
+        sys.exit("make-art: the font %s is missing" % FONT)
+    preview()

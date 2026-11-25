@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$here"
+python3 -I - <<'PY'
+import glob, os, re, sys, xml.etree.ElementTree as ET
+
+errors = []
+text_fields = ("label", "labelShort", "description", "verb", "gerund", "reportString", "jobReportString")
+
+if not os.path.isdir("Languages/English"):
+    print("FAIL Languages/English is missing")
+    sys.exit(1)
+langs = sorted(os.path.basename(d) for d in glob.glob("Languages/*") if os.path.isdir(d))
+if langs != ["English"]:
+    errors.append("only English ships, found: " + ", ".join(langs))
+
+def entries(folder):
+    found = {}
+    for path in sorted(glob.glob("Languages/English/%s/**/*.xml" % folder, recursive=True)):
+        for e in ET.parse(path).getroot():
+            if not isinstance(e.tag, str):
+                continue
+            if e.tag in found:
+                errors.append("duplicate key %s in %s" % (e.tag, path))
+            if not (e.text or "").strip():
+                errors.append("empty English text for %s in %s" % (e.tag, path))
+            found[e.tag] = e.text or ""
+    return found
+
+keyed = entries("Keyed")
+injected = {}
+for sub in sorted(glob.glob("Languages/English/DefInjected/*")):
+    if os.path.isdir(sub):
+        injected[os.path.basename(sub)] = entries("DefInjected/" + os.path.basename(sub))
+
+checked = 0
+expected = {}
+for path in sorted(glob.glob("Defs/**/*.xml", recursive=True)):
+    for d in ET.parse(path).getroot():
+        name = d.findtext("defName")
+        if name is None:
+            continue
+        for field in d:
+            if field.tag in text_fields and re.search(r"[A-Za-z]{2}", field.text or ""):
+                checked += 1
+                key = name + "." + field.tag
+                expected.setdefault(d.tag, set()).add(key)
+                got = injected.get(d.tag, {}).get(key)
+                if got is None:
+                    errors.append("%s has no English DefInjected entry" % key)
+                elif got != field.text:
+                    errors.append("%s: def says %r, English file says %r" % (key, field.text, got))
+if checked == 0:
+    errors.append("no def text found in Defs/, so there is nothing to check")
+for kind, keys in injected.items():
+    for key in keys:
+        if key not in expected.get(kind, set()):
+            errors.append("English DefInjected entry %s %s matches no def text" % (kind, key))
+
+used = set()
+for path in glob.glob("Source/**/*.cs", recursive=True):
+    if "/obj/" in path or "/bin/" in path:
+        continue
+    src = open(path, encoding="utf-8").read()
+    used.update(re.findall(r'"([A-Za-z0-9_.]+)"\s*\.(?:Translate|TryTranslate|TranslateWithBackup)\b', src))
+for key in sorted(used - set(keyed)):
+    errors.append("key %s is translated in code and has no English Keyed text" % key)
+
+if errors:
+    for e in errors:
+        print("FAIL " + e)
+    sys.exit(1)
+print("PASS %d def texts and %d Keyed keys in English, no duplicates, no other language folder" % (checked, len(keyed)))
+PY

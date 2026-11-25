@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Defs>
+    <WorkGiverDef>
+        <defName>AcbCutBlight</defName>
+        <label>cut blighted plants</label>
+        <giverClass>Rimhunter.AutoCutBlight.WorkGiver_CutBlight</giverClass>
+        <workType>PlantCutting</workType>
+        <emergency>true</emergency>
+        <priorityInType>10</priorityInType>
+        <verb>cut</verb>
+        <gerund>cutting blighted plants</gerund>
+        <directOrderable>false</directOrderable>
+        <requiredCapacities>
+            <li>Manipulation</li>
+        </requiredCapacities>
+    </WorkGiverDef>
+</Defs>

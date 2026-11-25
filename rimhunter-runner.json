@@ -1,0 +1,27 @@
+{
+  "worldSeed": "autocutblight-runner-world",
+  "packageId": "rimhunter.autocutblight",
+  "modAssembly": "ModAutoCutBlight.dll",
+  "modProject": "Source/ModAutoCutBlight.csproj",
+  "runnerProject": "TestRunner/Source/AutoCutBlightTestRunner.csproj",
+  "runnerPackageId": "rimhunter.autocutblight.testrunner",
+  "runnerAssembly": "AutoCutBlightTestRunner.dll",
+  "runnerDir": "TestRunner",
+  "scenarioDirs": [
+    "TestRunner/Source"
+  ],
+  "extraLaunches": [
+    {"label": "English translation files parse and hold no duplicate key", "command": ["scripts/test-translations"]}
+  ],
+  "stageExclude": [
+    "Source",
+    "Tests",
+    "scripts",
+    "*.proj",
+    "global.json",
+    "LICENSE",
+    ".gitignore",
+    "rimhunter-runner.json",
+    "external"
+  ]
+}
